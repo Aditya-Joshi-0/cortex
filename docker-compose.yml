@@ -1,0 +1,82 @@
+version: "3.9"
+
+# Milvus standalone stack — all you need for Phase 1 development.
+# Run: docker-compose up -d
+# Stop: docker-compose down
+# Data is persisted in Docker volumes (volumes: block at the bottom).
+
+services:
+
+  # ── etcd (Milvus metadata store) ──────────────────────────────
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: cortex-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: >
+      etcd
+      --name etcd0
+      --data-dir /etcd
+      --initial-advertise-peer-urls http://etcd:2380
+      --listen-peer-urls http://0.0.0.0:2380
+      --advertise-client-urls http://etcd:2379
+      --listen-client-urls http://0.0.0.0:2379
+      --initial-cluster etcd0=http://etcd:2380
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ── MinIO (Milvus object store) ───────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: cortex-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ── Milvus standalone ─────────────────────────────────────────
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: cortex-milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"   # gRPC (used by pymilvus)
+      - "9091:9091"     # Milvus health / metrics
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+
+volumes:
+  etcd_data:
+  minio_data:
+  milvus_data:

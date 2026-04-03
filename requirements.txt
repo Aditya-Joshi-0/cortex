@@ -1,0 +1,42 @@
+# ── Core ──────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ── LLM / Groq ─────────────────────────────────────────────────
+groq
+
+# ── Embeddings / NLP ───────────────────────────────────────────
+# sentence-transformers
+# torch
+# transformers
+
+# ── Vector store ───────────────────────────────────────────────
+pymilvus
+
+# ── Document parsing ───────────────────────────────────────────
+pdfplumber
+PyPDF2
+beautifulsoup4
+lxml
+
+# ── Chunking helpers ───────────────────────────────────────────
+nltk
+
+# ── UI ─────────────────────────────────────────────────────────
+streamlit
+requests
+
+# ── Utilities ──────────────────────────────────────────────────
+numpy
+python-dotenv
+tenacity
+loguru
+
+# ── Phase 2+ (install now to avoid re-solving deps later) ──────
+rank-bm25
+spacy
+networkx
+# ragas
+# tavily-python

@@ -137,7 +137,7 @@ with tab_ask:
                     f"{API_BASE}/query/stream",
                     json={"query": query, "top_k": top_k, "stream": True},
                     stream=True,
-                    timeout=60,
+                    timeout=300,
                 ) as resp:
                     resp.raise_for_status()
 

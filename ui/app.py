@@ -153,8 +153,14 @@ with tab_ask:
 
                         if event_type == "chunk_meta":
                             retrieved_chunks = payload.get("chunks", [])
+                            routing = payload.get("routing", {})
+                            intent = routing.get("intent", "")
+                            strategies = routing.get("strategies", [])
+                            hits = routing.get("retriever_hits", {})
+                            hits_str = "  ·  ".join(f"{k}: {v}" for k, v in hits.items())
+                            strategy_str = " + ".join(s.upper() for s in strategies)
                             status_placeholder.caption(
-                                f"📚 Retrieved {len(retrieved_chunks)} relevant passages"
+                                f"🧭 **{intent}** → {strategy_str}  |  📚 {len(retrieved_chunks)} passages  |  {hits_str}"
                             )
 
                         elif event_type == "token":

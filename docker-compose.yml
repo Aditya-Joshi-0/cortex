@@ -76,6 +76,18 @@ services:
       timeout: 20s
       retries: 5
 
+  # ── Attu (Milvus UI) ───────────────────────────
+  attu:
+    image: zilliz/attu:v2.4
+    container_name: cortex-attu
+    environment:
+      - MILVUS_URL=milvus:19530
+    ports:
+      - "3000:3000"
+    depends_on:
+      milvus:
+        condition: service_healthy
+
 volumes:
   etcd_data:
   minio_data:

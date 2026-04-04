@@ -13,6 +13,14 @@ class QueryRequest(BaseModel):
     stream: bool = Field(default=True, description="Stream tokens via SSE")
 
 
+class RoutingResponse(BaseModel):
+    intent: str
+    strategies: list[str]
+    confidence: float
+    reasoning: str
+    retriever_hits: dict = {}
+
+
 class ChunkResponse(BaseModel):
     chunk_id: str
     doc_id: str
@@ -36,6 +44,7 @@ class QueryResponse(BaseModel):
     answer: str
     citations: list[CitationResponse]
     retrieved_chunks: list[ChunkResponse]
+    routing: Optional[RoutingResponse] = None
     model: str
     usage: dict
 
@@ -50,6 +59,7 @@ class IngestResponse(BaseModel):
     documents_skipped: int
     chunks_created: int
     chunks_stored: int
+    bm25_indexed: int = 0
     errors: list[dict] = []
 
 

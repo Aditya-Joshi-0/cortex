@@ -42,6 +42,8 @@ from generation.generator import Generator, GenerationRequest
 from ingestion.pipeline import IngestionPipeline
 from retrieval.dense import MilvusStore
 from retrieval.embedder import Embedder
+from retrieval.bm25 import BM25Retriever
+from retrieval.orchestrator import MultiStrategyRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,8 @@ logger = logging.getLogger(__name__)
 
 _embedder: Embedder = None
 _store: MilvusStore = None
+_bm25: BM25Retriever = None
+_retriever: MultiStrategyRetriever = None
 _generator: Generator = None
 _pipeline: IngestionPipeline = None
 
@@ -57,13 +61,15 @@ _pipeline: IngestionPipeline = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise shared resources on startup, clean up on shutdown."""
-    global _embedder, _store, _generator, _pipeline
+    global _embedder, _store, _bm25, _retriever, _generator, _pipeline
     logger.info("Cortex starting up...")
 
     _embedder  = Embedder()
     _store     = MilvusStore(embedder=_embedder)
+    _bm25      = BM25Retriever()
+    _retriever = MultiStrategyRetriever(embedder=_embedder, store=_store, bm25=_bm25)
     _generator = Generator()
-    _pipeline  = IngestionPipeline(embedder=_embedder, store=_store)
+    _pipeline  = IngestionPipeline(embedder=_embedder, store=_store, bm25=_bm25)
 
     # Warm up: trigger model load immediately so first request is fast
     _ = _embedder.model
@@ -164,12 +170,12 @@ async def query(req: QueryRequest) -> QueryResponse:
     k = req.top_k or cfg.retrieval_top_k
 
     try:
-        chunks = _store.search(req.query, top_k=k)
+        retrieval = _retriever.retrieve(req.query, top_k_candidates=k, final_top_k=cfg.final_top_k)
     except Exception as exc:
         logger.exception("Retrieval error")
         raise HTTPException(status_code=500, detail=f"Retrieval failed: {exc}")
 
-    if not chunks:
+    if retrieval.empty:
         return QueryResponse(
             query=req.query,
             answer="No relevant documents found in the knowledge base.",
@@ -179,8 +185,7 @@ async def query(req: QueryRequest) -> QueryResponse:
             usage={},
         )
 
-    # Take only final_top_k for generation
-    final_chunks = chunks[: cfg.final_top_k]
+    final_chunks = retrieval.chunks
 
     try:
         result = _generator.generate(
@@ -237,21 +242,32 @@ async def query_stream(req: QueryRequest):
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
             # 1. Retrieve
-            chunks = _store.search(req.query, top_k=k)
-            final_chunks = chunks[: cfg.final_top_k]
+            # 1. Multi-strategy retrieval: router → dense+BM25 → RRF → cross-encoder
+            result = _retriever.retrieve(req.query, top_k_candidates=k, final_top_k=cfg.final_top_k)
+            final_chunks = result.chunks
 
-            # 2. Emit chunk metadata so the UI can show sources immediately
+            # 2. Emit chunk metadata + routing decision so UI shows sources + strategy info immediately
             chunk_meta = [
                 {
                     "chunk_id": c.chunk_id,
                     "title": c.title,
                     "source": c.source,
                     "score": round(c.score, 4),
+                    "retriever": c.retriever,
                     "text_snippet": c.text[:200],
                 }
                 for c in final_chunks
             ]
-            yield _sse_event({"type": "chunk_meta", "chunks": chunk_meta})
+            yield _sse_event({
+                "type": "chunk_meta",
+                "chunks": chunk_meta,
+                "routing": {
+                    "intent": result.decision.intent.value,
+                    "strategies": result.decision.strategies,
+                    "retriever_hits": result.retriever_hits,
+                    "reasoning": result.decision.reasoning,
+                },
+            })
 
             if not final_chunks:
                 yield _sse_event({

@@ -1,9 +1,9 @@
 """
 Cortex RAG — Ingestion Pipeline
 
-Orchestrates: DocumentLoader → SemanticChunker → Embedder → MilvusStore.
-Includes deduplication (skip already-ingested doc_ids), progress logging,
-and a CLI entry point for one-off or batch ingestion.
+Orchestrates: DocumentLoader → SemanticChunker → Embedder → MilvusStore + BM25.
+Phase 2: chunks are now indexed in BOTH Milvus (dense) and BM25 (sparse)
+during ingestion. Both indexes are deduplicated independently.
 """
 from __future__ import annotations
 import sys
@@ -21,6 +21,7 @@ from ingestion.chunker import Chunk, SemanticChunker
 from ingestion.document_loader import Document, DocumentLoader
 from retrieval.embedder import Embedder
 from retrieval.dense import MilvusStore
+from retrieval.bm25 import BM25Retriever
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,13 @@ class IngestionPipeline:
         chunker: Optional[SemanticChunker] = None,
         embedder: Optional[Embedder] = None,
         store: Optional[MilvusStore] = None,
+        bm25: Optional[BM25Retriever] = None,
     ) -> None:
         self._loader = loader or DocumentLoader()
         self._embedder = embedder or Embedder()
         self._chunker = chunker or SemanticChunker(embedder=self._embedder)
         self._store = store or MilvusStore(embedder=self._embedder)
+        self._bm25  = bm25  or BM25Retriever()
 
     # ── Public ─────────────────────────────────────────────────
 
@@ -115,13 +118,21 @@ class IngestionPipeline:
             logger.warning("No chunks produced.")
             return stats
 
-        # ── Embed + store (batched) ────────────────────────────
+        # ── Embed + store in Milvus (dense) ───────────────────
         try:
             stored = self._store.upsert_chunks(all_chunks)
             stats["chunks_stored"] = stored
         except Exception as exc:
-            logger.error("Storage failed: %s", exc)
+            logger.error("Milvus storage failed: %s", exc)
             stats["errors"].append({"source": "milvus_upsert", "error": str(exc)})
+
+        # ── Index in BM25 (sparse) — Phase 2 ──────────────────
+        try:
+            bm25_added = self._bm25.add_chunks(all_chunks)
+            stats["bm25_indexed"] = bm25_added
+        except Exception as exc:
+            logger.error("BM25 indexing failed: %s", exc)
+            stats["errors"].append({"source": "bm25_index", "error": str(exc)})
 
         elapsed = time.perf_counter() - t0
         logger.info(

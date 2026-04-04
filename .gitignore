@@ -215,5 +215,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local dirs
+# Local dirs & test files
+test.py
 data/

@@ -22,6 +22,7 @@ from ingestion.document_loader import Document, DocumentLoader
 from retrieval.embedder import Embedder
 from retrieval.dense import MilvusStore
 from retrieval.bm25 import BM25Retriever
+from retrieval.graph_builder import KnowledgeGraphBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,15 @@ class IngestionPipeline:
         embedder: Optional[Embedder] = None,
         store: Optional[MilvusStore] = None,
         bm25: Optional[BM25Retriever] = None,
+        graph: Optional[KnowledgeGraphBuilder] = None,
+
     ) -> None:
         self._loader = loader or DocumentLoader()
         self._embedder = embedder or Embedder()
         self._chunker = chunker or SemanticChunker(embedder=self._embedder)
         self._store = store or MilvusStore(embedder=self._embedder)
         self._bm25  = bm25  or BM25Retriever()
+        self._graph = graph or KnowledgeGraphBuilder()
 
     # ── Public ─────────────────────────────────────────────────
 
@@ -133,7 +137,16 @@ class IngestionPipeline:
         except Exception as exc:
             logger.error("BM25 indexing failed: %s", exc)
             stats["errors"].append({"source": "bm25_index", "error": str(exc)})
-
+        
+        # ── Build knowledge graph (NER + relations) — Phase 3 ──
+        try:
+            graph_stats = self._graph.process_chunks(all_chunks)
+            stats["graph_entities"] = graph_stats.get("entities", 0)
+            stats["graph_triples"]  = graph_stats.get("triples", 0)
+        except Exception as exc:
+            logger.error("Graph extraction failed: %s", exc)
+            stats["errors"].append({"source": "graph_build", "error": str(exc)})
+        
         elapsed = time.perf_counter() - t0
         logger.info(
             "Ingestion complete in %.1fs — %d docs, %d chunks stored.",

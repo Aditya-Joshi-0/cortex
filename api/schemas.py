@@ -45,6 +45,9 @@ class QueryResponse(BaseModel):
     citations: list[CitationResponse]
     retrieved_chunks: list[ChunkResponse]
     routing: Optional[RoutingResponse] = None
+    crag_grade: Optional[str] = None
+    crag_rewritten_query: Optional[str] = None
+    web_search_used: bool = False
     model: str
     usage: dict
 
@@ -60,6 +63,8 @@ class IngestResponse(BaseModel):
     chunks_created: int
     chunks_stored: int
     bm25_indexed: int = 0
+    graph_entities: int = 0
+    graph_triples: int = 0
     errors: list[dict] = []
 
 
@@ -68,3 +73,4 @@ class HealthResponse(BaseModel):
     milvus: str
     embedder: str
     collection_stats: dict
+    graph_stats: dict = {}

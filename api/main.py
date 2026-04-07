@@ -39,6 +39,10 @@ from api.schemas import (
 )
 from config import get_settings
 from generation.generator import Generator, GenerationRequest
+from generation.crag import CRAGGate
+from evaluation.store import EvalStore, QueryLogEntry
+from evaluation.ragas_eval import RAGASEvaluator, EvalInput
+from retrieval.cache import CachedRetriever
 from ingestion.pipeline import IngestionPipeline
 from retrieval.dense import MilvusStore
 from retrieval.embedder import Embedder
@@ -46,6 +50,7 @@ from retrieval.bm25 import BM25Retriever
 from retrieval.orchestrator import MultiStrategyRetriever
 
 logger = logging.getLogger(__name__)
+cfg = get_settings()
 
 # ── Shared singletons ──────────────────────────────────────────
 # Created once on startup, shared across requests
@@ -54,6 +59,9 @@ _embedder: Embedder = None
 _store: MilvusStore = None
 _bm25: BM25Retriever = None
 _retriever: MultiStrategyRetriever = None
+_crag: CRAGGate = None
+_eval_store: EvalStore = None
+_evaluator: RAGASEvaluator = None
 _generator: Generator = None
 _pipeline: IngestionPipeline = None
 
@@ -61,14 +69,19 @@ _pipeline: IngestionPipeline = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise shared resources on startup, clean up on shutdown."""
-    global _embedder, _store, _bm25, _retriever, _generator, _pipeline
+    global _embedder, _store, _bm25, _retriever, _crag, _generator, _pipeline, _eval_store, _evaluator
     logger.info("Cortex starting up...")
 
     _embedder  = Embedder()
     _store     = MilvusStore(embedder=_embedder)
     _bm25      = BM25Retriever()
     _retriever = MultiStrategyRetriever(embedder=_embedder, store=_store, bm25=_bm25)
-    _generator = Generator()
+    _crag       = CRAGGate()
+    _eval_store = EvalStore(db_path=cfg.eval_db_path)
+    _evaluator  = RAGASEvaluator(store=_eval_store)
+    _generator  = Generator()
+    # Wrap retriever with Redis cache (degrades gracefully if Redis is absent)
+    _retriever  = CachedRetriever(_retriever)
     _pipeline  = IngestionPipeline(embedder=_embedder, store=_store, bm25=_bm25)
 
     # Warm up: trigger model load immediately so first request is fast
@@ -126,11 +139,18 @@ async def health() -> HealthResponse:
 
     embedder_status = "loaded" if _embedder and _embedder._model else "not_loaded"
 
+    graph_stats = {}
+    try:
+        graph_stats = _retriever.graph_builder.stats()
+    except Exception:
+        pass
+
     return HealthResponse(
         status="ok" if milvus_status == "ok" else "degraded",
         milvus=milvus_status,
         embedder=embedder_status,
         collection_stats=collection_stats,
+        graph_stats=graph_stats,
     )
 
 
@@ -159,6 +179,25 @@ async def ingest(req: IngestRequest) -> IngestResponse:
 
     return IngestResponse(**stats)
 
+@app.get("/metrics", tags=["evaluation"])
+async def get_metrics(limit: int = 100, days: int = 7):
+    """
+    Query performance metrics and RAGAS scores for the dashboard.
+    Returns summary stats, recent query logs, and hourly timeseries.
+    """
+    return {
+        "summary":    _eval_store.get_summary_stats(),
+        "recent":     _eval_store.get_recent_queries(limit=limit),
+        "timeseries": _eval_store.get_metric_timeseries(days=days),
+        "cache":      _retriever.cache_stats(),
+    }
+
+
+@app.post("/cache/flush", tags=["system"])
+async def flush_cache():
+    """Flush all Redis retrieval cache entries."""
+    deleted = _retriever.flush_all()
+    return {"deleted": deleted}
 
 @app.post("/query", response_model=QueryResponse, tags=["retrieval"])
 async def query(req: QueryRequest) -> QueryResponse:
@@ -168,6 +207,9 @@ async def query(req: QueryRequest) -> QueryResponse:
     """
     cfg = get_settings()
     k = req.top_k or cfg.retrieval_top_k
+
+    import time as _time
+    _t0 = _time.perf_counter()
 
     try:
         retrieval = _retriever.retrieve(req.query, top_k_candidates=k, final_top_k=cfg.final_top_k)
@@ -187,6 +229,14 @@ async def query(req: QueryRequest) -> QueryResponse:
 
     final_chunks = retrieval.chunks
 
+    # CRAG gate: grade, rewrite if POOR, web-search fallback if ABSENT
+    crag_result = _crag.evaluate(
+        query=req.query,
+        chunks=final_chunks,
+        retriever_fn=lambda q: _retriever.retrieve(q).chunks,
+    )
+    final_chunks = crag_result.final_chunks
+
     try:
         result = _generator.generate(
             GenerationRequest(query=req.query, chunks=final_chunks)
@@ -194,6 +244,30 @@ async def query(req: QueryRequest) -> QueryResponse:
     except Exception as exc:
         logger.exception("Generation error")
         raise HTTPException(status_code=500, detail=f"Generation failed: {exc}")
+
+    latency_ms = (_time.perf_counter() - _t0) * 1000
+
+    log_id = _eval_store.log_query(QueryLogEntry(
+        query=req.query,
+        intent=retrieval.decision.intent.value,
+        strategies=retrieval.decision.strategies,
+        retriever_hits=retrieval.retriever_hits,
+        crag_grade=crag_result.grade.value,
+        crag_rewritten=bool(crag_result.rewritten_query),
+        web_search_used=crag_result.web_search_used,
+        num_chunks=len(final_chunks),
+        top_chunk_score=final_chunks[0].score if final_chunks else 0.0,
+        latency_ms=latency_ms,
+        model=result.model,
+    ))
+
+    if cfg.eval_enabled:
+        _evaluator.evaluate_async(EvalInput(
+            query_log_id=log_id,
+            query=req.query,
+            answer=result.answer,
+            chunks=final_chunks,
+        ))
 
     return QueryResponse(
         query=req.query,
@@ -277,7 +351,25 @@ async def query_stream(req: QueryRequest):
                 yield _sse_event({"type": "done"})
                 return
 
-            # 3. Stream answer tokens
+            # 3. CRAG gate — grade, optionally rewrite + re-retrieve
+            crag_result = _crag.evaluate(
+                query=req.query,
+                chunks=final_chunks,
+                retriever_fn=lambda q: _retriever.retrieve(q).chunks,
+            )
+            final_chunks = crag_result.final_chunks
+
+            # Emit CRAG event if something interesting happened
+            if crag_result.grade.value != "GOOD" or crag_result.web_search_used:
+                yield _sse_event({
+                    "type": "crag_update",
+                    "grade": crag_result.grade.value,
+                    "rewritten_query": crag_result.rewritten_query,
+                    "web_search_used": crag_result.web_search_used,
+                    "reasoning": crag_result.reasoning,
+                })
+
+            # 4. Stream answer tokens
             gen_request = GenerationRequest(
                 query=req.query,
                 chunks=final_chunks,

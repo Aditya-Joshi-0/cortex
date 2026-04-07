@@ -30,6 +30,8 @@ from retrieval.bm25 import BM25Retriever
 from retrieval.dense import MilvusStore, RetrievedChunk
 from retrieval.embedder import Embedder
 from retrieval.fusion import CrossEncoderReranker, RRFFusion
+from retrieval.graph_builder import KnowledgeGraphBuilder
+from retrieval.graph_retriever import GraphRetriever
 from retrieval.router import QueryRouter, RoutingDecision
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,7 @@ class MultiStrategyRetriever:
         embedder: Optional[Embedder] = None,
         store: Optional[MilvusStore] = None,
         bm25: Optional[BM25Retriever] = None,
+        graph_builder: Optional[KnowledgeGraphBuilder] = None,
         router: Optional[QueryRouter] = None,
         fuser: Optional[RRFFusion] = None,
         reranker: Optional[CrossEncoderReranker] = None,
@@ -58,6 +61,10 @@ class MultiStrategyRetriever:
         self._embedder = embedder or Embedder()
         self._dense    = store    or MilvusStore(embedder=self._embedder)
         self._bm25     = bm25     or BM25Retriever()
+        self._graph_builder = graph_builder or KnowledgeGraphBuilder()
+        self._graph    = GraphRetriever(
+            graph_builder=self._graph_builder, store=self._dense
+        )
         self._router   = router   or QueryRouter()
         self._fuser    = fuser    or RRFFusion()
         self._reranker = reranker or CrossEncoderReranker()
@@ -112,6 +119,17 @@ class MultiStrategyRetriever:
         Dense indexing is handled separately by MilvusStore.
         """
         return self._bm25.add_chunks(chunks)
+    
+    def build_graph(self, chunks: list) -> dict:
+        """
+        Extract entities + relations from chunks and update the knowledge graph.
+        Call from ingestion pipeline after dense + BM25 indexing.
+        """
+        return self._graph_builder.process_chunks(chunks)
+
+    @property
+    def graph_builder(self) -> KnowledgeGraphBuilder:
+        return self._graph_builder
 
     # ── Private: parallel retrieval ───────────────────────────
 
@@ -128,7 +146,7 @@ class MultiStrategyRetriever:
         retriever_map = {
             "dense": lambda q, k: self._dense.search(q, top_k=k),
             "bm25":  lambda q, k: self._bm25.search(q, top_k=k),
-            # "graph" will be registered here in Phase 3
+            "graph": lambda q, k: self._graph.search(q, top_k=k),
         }
 
         results: dict[str, list[RetrievedChunk]] = {}

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cortex RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">cortex</div>
+      <div class="logo-sub">RAG · v4.0</div>
+    </div>
+    <div class="nav-item active" data-tab="chat">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 10.5a2 2 0 01-2 2H5l-3 2.5V4a2 2 0 012-2h8a2 2 0 012 2v6.5z"/>
+      </svg>
+      <span>Chat</span>
+    </div>
+    <div class="nav-item" data-tab="ingest">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2v8m0 0l-3-3m3 3l3-3M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1"/>
+      </svg>
+      <span>Ingest</span>
+    </div>
+    <div class="nav-item" data-tab="eval">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="10" width="3" height="4" rx="0.5"/>
+        <rect x="6.5" y="6" width="3" height="8" rx="0.5"/>
+        <rect x="11" y="2" width="3" height="12" rx="0.5"/>
+      </svg>
+      <span>Evaluation</span>
+    </div>
+    <div class="nav-item" data-tab="system">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="2.5"/>
+        <path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M11.1 4.9l-1.3 1.3M4.9 11.1l-1.3 1.3"/>
+      </svg>
+      <span>System</span>
+    </div>
+    <div class="sidebar-footer">
+      <div><span class="status-dot" id="statusDot"></span><span class="status-label" id="statusLabel">checking…</span></div>
+    </div>
+  </nav>
+
+  <!-- ── Main ──────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- ═══ CHAT TAB ══════════════════════════════════════════ -->
+    <div class="tab-panel active" id="tab-chat">
+      <div class="panel-header">
+        <span class="panel-title">/ chat</span>
+        <div class="panel-actions">
+          <button class="btn btn-ghost" id="clearChat">clear</button>
+        </div>
+      </div>
+      <div class="chat-wrap">
+        <div class="chat-messages" id="chatMessages">
+          <div class="message">
+            <div class="msg-avatar ai">cx</div>
+            <div class="msg-body">
+              <div class="msg-role">CORTEX</div>
+              <div class="msg-text">Ready. Ask anything about your ingested documents. Multi-hop queries work best — try connecting concepts across sources.</div>
+            </div>
+          </div>
+        </div>
+        <div class="sources-panel">
+          <div class="sources-header">retrieved passages</div>
+          <div class="sources-list" id="sourcesList">
+            <div class="empty-sources">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              <span>Sources will appear here after your first query</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <textarea class="chat-textarea" id="chatInput" placeholder="Ask a question…" rows="1"></textarea>
+          <button class="btn btn-primary" id="sendBtn">send</button>
+        </div>
+        <div class="input-meta">
+          <span class="topk-label">top-k</span>
+          <input class="topk-input" type="number" id="topkInput" value="10" min="1" max="20">
+          <div class="stream-status" id="streamStatus"></div>
+          <button class="btn btn-ghost clear-btn" id="clearChat2">clear history</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ INGEST TAB ════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-ingest">
+      <div class="panel-header">
+        <span class="panel-title">/ ingest</span>
+      </div>
+      <div class="ingest-body">
+        <div class="form-card">
+          <h3>ingest_documents()</h3>
+          <div class="form-group">
+            <label class="form-label">server path (file or directory)</label>
+            <input class="form-input" type="text" id="ingestPath" placeholder="data/documents  or  /abs/path/to/paper.pdf">
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ingestRecursive" checked>
+            <span>recursive (include subdirectories)</span>
+          </label>
+          <div class="progress-wrap" id="ingestProgress" style="display:none">
+            <div class="progress-bar indeterminate"></div>
+          </div>
+          <div style="margin-top:16px">
+            <button class="btn btn-primary" id="ingestBtn">run ingestion</button>
+          </div>
+        </div>
+        <div class="ingest-result" id="ingestResult" style="display:none"></div>
+        <div id="ingestLog">
+          <div class="sources-header" style="padding:0 0 10px;border:none;font-family:var(--mono);font-size:11px;color:var(--muted)">ingestion log</div>
+          <div class="ingest-log" id="ingestLogList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ EVAL TAB ══════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-eval">
+      <div class="panel-header">
+        <span class="panel-title">/ evaluation</span>
+        <div class="panel-actions">
+          <button class="btn btn-ghost" id="refreshMetrics">refresh</button>
+          <button class="btn btn-danger" id="flushCache">flush cache</button>
+        </div>
+      </div>
+      <div class="eval-body" id="evalBody">
+        <div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:40px 0;text-align:center">loading metrics…</div>
+      </div>
+    </div>
+
+    <!-- ═══ SYSTEM TAB ════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-system">
+      <div class="panel-header">
+        <span class="panel-title">/ system</span>
+        <div class="panel-actions">
+          <button class="btn btn-ghost" id="refreshSystem">refresh</button>
+        </div>
+      </div>
+      <div class="system-body" id="systemBody">
+        <div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:40px 0;text-align:center">loading…</div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/script.js"></script>
+</body>
+</html>

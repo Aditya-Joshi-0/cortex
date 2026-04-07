@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 import os
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +26,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -50,7 +53,6 @@ from retrieval.bm25 import BM25Retriever
 from retrieval.orchestrator import MultiStrategyRetriever
 
 logger = logging.getLogger(__name__)
-cfg = get_settings()
 
 # ── Shared singletons ──────────────────────────────────────────
 # Created once on startup, shared across requests
@@ -71,6 +73,7 @@ async def lifespan(app: FastAPI):
     """Initialise shared resources on startup, clean up on shutdown."""
     global _embedder, _store, _bm25, _retriever, _crag, _generator, _pipeline, _eval_store, _evaluator
     logger.info("Cortex starting up...")
+    cfg = get_settings()
 
     _embedder  = Embedder()
     _store     = MilvusStore(embedder=_embedder)
@@ -119,6 +122,15 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+# Mount the SPA — served at / and all sub-paths not matched by API routes
+_STATIC_DIR = Path(__file__).parent.parent / "ui" / "static"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+@app.get("/", include_in_schema=False)
+async def serve_spa():
+    return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
 # ── Routes ─────────────────────────────────────────────────────

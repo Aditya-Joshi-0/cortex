@@ -55,9 +55,12 @@ from retrieval.relation_extractors import (
     build_extractor,
 )
 
+from config import get_settings
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_GRAPH_PATH = Path("data/knowledge_graph.json")
+cfg = get_settings()
+_DEFAULT_GRAPH_PATH = Path(cfg.graph_path)
 
 # spaCy entity types we care about for RAG
 _ENTITY_TYPES = {

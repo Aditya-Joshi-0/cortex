@@ -14,23 +14,52 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',e=>{
   if(!localStorage.getItem('cortex-theme')) applyTheme(e.matches?'dark':'light');
 });
 
-/* COLLAPSIBLE SIDEBARS */
-const sidebar=document.getElementById('sidebar');
+/* RESPONSIVE NAV BINDINGS */
+const sidebar = document.getElementById('sidebar');
+const mobileNavToggles = document.querySelectorAll('.mobile-nav-toggle');
+const mobileOverlay = document.getElementById('mobileOverlay');
+
+function openMobileSidebar() {
+  sidebar.classList.add('mobile-open');
+  mobileOverlay.classList.add('show');
+}
+function closeMobilePanels() {
+  sidebar.classList.remove('mobile-open');
+  sourcesPanel.classList.remove('mobile-open');
+  mobileOverlay.classList.remove('show');
+}
+
+mobileNavToggles.forEach(btn => btn.addEventListener('click', openMobileSidebar));
+mobileOverlay.addEventListener('click', closeMobilePanels);
+
+/* COLLAPSIBLE SIDEBARS (Desktop) & Sources Panel */
 const sidebarToggle=document.getElementById('sidebarToggle');
 const sourcesPanel=document.getElementById('sourcesPanel');
 const sourcesToggle=document.getElementById('sourcesToggle');
+const mobileSourcesBtn=document.getElementById('mobileSourcesBtn');
+
 sidebarToggle.addEventListener('click',()=>{
   const c=sidebar.classList.toggle('collapsed');
   sidebarToggle.textContent=c?'▶':'◀';
   sidebarToggle.title=c?'Expand':'Collapse';
 });
+
+// For desktop
 sourcesToggle.addEventListener('click',()=>{
   const c=sourcesPanel.classList.toggle('collapsed');
   sourcesToggle.textContent=c?'◀':'▶';
   sourcesToggle.title=c?'Expand':'Collapse';
 });
 
-/* NAV */
+// For mobile
+if(mobileSourcesBtn) {
+  mobileSourcesBtn.addEventListener('click',()=>{
+    sourcesPanel.classList.add('mobile-open');
+    mobileOverlay.classList.add('show');
+  });
+}
+
+/* NAV ROUTING */
 document.querySelectorAll('.nav-item').forEach(item=>{
   item.addEventListener('click',()=>{
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -39,6 +68,11 @@ document.querySelectorAll('.nav-item').forEach(item=>{
     document.getElementById('tab-'+item.dataset.tab).classList.add('active');
     if(item.dataset.tab==='eval') loadMetrics();
     if(item.dataset.tab==='system') loadHealth();
+    
+    // Auto-close sidebar on mobile after navigating
+    if(window.innerWidth <= 768) {
+        closeMobilePanels();
+    }
   });
 });
 
@@ -77,10 +111,18 @@ function linkifyCitations(html,n){
 function highlightSource(n){
   const card=document.getElementById('src-card-'+n);
   if(!card) return;
-  if(sourcesPanel.classList.contains('collapsed')){
+  
+  // Handle desktop collapse logic
+  if(window.innerWidth > 768 && sourcesPanel.classList.contains('collapsed')){
     sourcesPanel.classList.remove('collapsed');
     sourcesToggle.textContent='▶';
   }
+  // Handle mobile slide-in logic
+  if(window.innerWidth <= 768 && !sourcesPanel.classList.contains('mobile-open')){
+    sourcesPanel.classList.add('mobile-open');
+    mobileOverlay.classList.add('show');
+  }
+
   card.scrollIntoView({behavior:'smooth',block:'nearest'});
   card.classList.remove('highlighted');
   void card.offsetWidth;
@@ -194,7 +236,6 @@ async function sendMessage(){
           if(evt.rewritten_query) streamStatus.textContent='rewritten: "'+evt.rewritten_query.slice(0,50)+'…"';
         }
         else if(evt.type==='token'){
-          // Append text node directly before cursor — true per-token streaming
           const tok=evt.text||'';
           rawText+=tok;
           cursor.before(document.createTextNode(tok));
@@ -242,7 +283,96 @@ function addBadge(container,text,color){
 }
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-/* INGEST */
+/* INGEST TABS */
+document.querySelectorAll('.ingest-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    const sec=tab.dataset.section;
+    document.querySelectorAll('.ingest-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.ingest-section').forEach(s=>s.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('ingest-section-'+sec).classList.add('active');
+  });
+});
+
+/* FILE UPLOAD */
+let selectedFiles=[];
+
+function fmtSize(b){
+  if(b<1024) return b+'B';
+  if(b<1048576) return (b/1024).toFixed(1)+'KB';
+  return (b/1048576).toFixed(1)+'MB';
+}
+
+function renderFileList(){
+  const list=document.getElementById('fileList');
+  const count=document.getElementById('uploadCount');
+  const uploadBtn=document.getElementById('uploadBtn');
+  const clearBtn=document.getElementById('clearFilesBtn');
+  list.innerHTML=selectedFiles.map((f,i)=>
+    '<div class="file-item"><span class="file-item-name">'+escHtml(f.name)+'</span><span class="file-item-size">'+fmtSize(f.size)+'</span><button class="file-item-remove" data-i="'+i+'" title="Remove">✕</button></div>'
+  ).join('');
+  list.querySelectorAll('.file-item-remove').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      selectedFiles.splice(parseInt(btn.dataset.i),1);
+      renderFileList();
+    });
+  });
+  uploadBtn.disabled=selectedFiles.length===0;
+  clearBtn.style.display=selectedFiles.length?'':'none';
+  count.textContent=selectedFiles.length?selectedFiles.length+' file'+(selectedFiles.length>1?'s':'')+' selected':'';
+}
+
+function addFiles(newFiles){
+  const allowed=new Set(['.pdf','.html','.htm','.txt','.md']);
+  Array.from(newFiles).forEach(f=>{
+    const ext=f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
+    if(!allowed.has(ext)){toast('Skipped '+f.name+' — unsupported type');return;}
+    if(!selectedFiles.find(x=>x.name===f.name&&x.size===f.size)) selectedFiles.push(f);
+  });
+  renderFileList();
+}
+
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+
+dropZone.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',()=>{addFiles(fileInput.files);fileInput.value='';});
+
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('drag-over');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop',e=>{
+  e.preventDefault();dropZone.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+
+document.getElementById('clearFilesBtn').addEventListener('click',()=>{selectedFiles=[];renderFileList();});
+
+document.getElementById('uploadBtn').addEventListener('click',async()=>{
+  if(!selectedFiles.length) return;
+  const btn=document.getElementById('uploadBtn');
+  const prog=document.getElementById('uploadProgress');
+  const res=document.getElementById('ingestResult');
+  btn.disabled=true;btn.textContent='uploading…';prog.style.display='block';res.style.display='none';
+
+  const form=new FormData();
+  selectedFiles.forEach(f=>form.append('files',f,f.name));
+
+  try{
+    const r=await fetch('/ingest/upload',{method:'POST',body:form});
+    if(!r.ok){const e=await r.json();throw new Error(e.detail||'Upload failed');}
+    const d=await r.json();
+    prog.style.display='none';res.style.display='block';
+    showIngestResult(d,'upload: '+selectedFiles.map(f=>f.name).join(', '));
+    selectedFiles=[];renderFileList();checkHealth();
+  }catch(err){
+    prog.style.display='none';
+    toast('Error: '+err.message);
+    btn.disabled=false;btn.textContent='upload & ingest';
+  }
+  btn.disabled=false;btn.textContent='upload & ingest';
+});
+
+/* SERVER PATH INGEST */
 document.getElementById('ingestBtn').addEventListener('click',async()=>{
   const path=document.getElementById('ingestPath').value.trim();
   if(!path){toast('Enter a server path first');return;}
@@ -255,14 +385,22 @@ document.getElementById('ingestBtn').addEventListener('click',async()=>{
     const r=await fetch('/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,recursive})});
     const d=await r.json();
     prog.style.display='none';res.style.display='block';
-    const errHtml=(d.errors||[]).map(e=>'<div class="error-row">⚠ '+escHtml(e.source)+': '+escHtml(e.error)+'</div>').join('');
-    res.innerHTML='<h4>ingestion complete</h4><div class="stat-grid"><div class="stat-cell"><div class="stat-val">'+d.documents_processed+'</div><div class="stat-key">DOCS</div></div><div class="stat-cell"><div class="stat-val">'+d.chunks_stored+'</div><div class="stat-key">CHUNKS</div></div><div class="stat-cell"><div class="stat-val">'+(d.bm25_indexed||0)+'</div><div class="stat-key">BM25</div></div><div class="stat-cell"><div class="stat-val">'+d.documents_skipped+'</div><div class="stat-key">SKIPPED</div></div><div class="stat-cell"><div class="stat-val">'+(d.graph_entities||0)+'</div><div class="stat-key">ENTITIES</div></div><div class="stat-cell"><div class="stat-val">'+(d.graph_triples||0)+'</div><div class="stat-key">TRIPLES</div></div></div>'+(errHtml?'<div style="margin-top:9px">'+errHtml+'</div>':'');
-    const ll=document.getElementById('ingestLogList');
-    const le=document.createElement('div');le.className='log-entry';le.innerHTML='<span class="log-ts">'+new Date().toLocaleTimeString()+'</span>'+escHtml(path)+' → '+d.chunks_stored+' chunks';
-    ll.prepend(le);checkHealth();toast('✓ '+d.documents_processed+' docs, '+d.chunks_stored+' chunks');
+    showIngestResult(d,path);checkHealth();
   }catch(err){prog.style.display='none';toast('Error: '+err.message);}
   btn.disabled=false;btn.textContent='run ingestion';
 });
+
+function showIngestResult(d,label){
+  const res=document.getElementById('ingestResult');
+  res.style.display='block';
+  const errHtml=(d.errors||[]).map(e=>'<div class="error-row">⚠ '+escHtml(e.source)+': '+escHtml(e.error)+'</div>').join('');
+  res.innerHTML='<h4>ingestion complete</h4><div class="stat-grid"><div class="stat-cell"><div class="stat-val">'+d.documents_processed+'</div><div class="stat-key">DOCS</div></div><div class="stat-cell"><div class="stat-val">'+d.chunks_stored+'</div><div class="stat-key">CHUNKS</div></div><div class="stat-cell"><div class="stat-val">'+(d.bm25_indexed||0)+'</div><div class="stat-key">BM25</div></div><div class="stat-cell"><div class="stat-val">'+d.documents_skipped+'</div><div class="stat-key">SKIPPED</div></div><div class="stat-cell"><div class="stat-val">'+(d.graph_entities||0)+'</div><div class="stat-key">ENTITIES</div></div><div class="stat-cell"><div class="stat-val">'+(d.graph_triples||0)+'</div><div class="stat-key">TRIPLES</div></div></div>'+(errHtml?'<div style="margin-top:9px">'+errHtml+'</div>':'');
+  const ll=document.getElementById('ingestLogList');
+  const le=document.createElement('div');le.className='log-entry';
+  le.innerHTML='<span class="log-ts">'+new Date().toLocaleTimeString()+'</span>'+escHtml(label.slice(0,60))+' → '+d.chunks_stored+' chunks';
+  ll.prepend(le);
+  toast('✓ '+d.documents_processed+' docs, '+d.chunks_stored+' chunks');
+}
 
 /* EVAL */
 document.getElementById('refreshMetrics').addEventListener('click',loadMetrics);

@@ -23,9 +23,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,6 +98,7 @@ async def lifespan(app: FastAPI):
 # ── App factory ────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
+    global cfg
     cfg = get_settings()
 
     app = FastAPI(
@@ -127,6 +128,11 @@ app = create_app()
 _STATIC_DIR = Path(__file__).parent.parent / "ui" / "static"
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Temporary directory for browser-uploaded files (auto-created)
+_UPLOAD_DIR = Path(cfg.upload_dir)
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @app.get("/", include_in_schema=False)
 async def serve_spa():
@@ -190,6 +196,71 @@ async def ingest(req: IngestRequest) -> IngestResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return IngestResponse(**stats)
+
+
+@app.post("/ingest/upload", response_model=IngestResponse, tags=["ingestion"])
+async def ingest_upload(files: List[UploadFile] = File(...)) -> IngestResponse:
+    """
+    Upload files directly from the browser and ingest them.
+
+    Accepts one or more files (PDF, HTML, TXT, Markdown).
+    Files are saved to data/uploads/<original_filename> and then
+    passed through the same ingestion pipeline as /ingest.
+    Duplicate filenames are overwritten — re-uploading the same
+    file will be deduplicated at the chunk level by doc_id.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
+
+    saved_paths: list[Path] = []
+    save_errors: list[dict] = []
+
+    for upload in files:
+        # Sanitise filename — strip any path components the browser may include
+        safe_name = Path(upload.filename).name
+        if not safe_name:
+            continue
+        dest = _UPLOAD_DIR / safe_name
+        try:
+            content_bytes = await upload.read()
+            dest.write_bytes(content_bytes)
+            saved_paths.append(dest)
+            logger.info("Uploaded: %s (%d bytes)", safe_name, len(content_bytes))
+        except Exception as exc:
+            logger.warning("Failed to save %s: %s", safe_name, exc)
+            save_errors.append({"source": safe_name, "error": str(exc)})
+        finally:
+            await upload.close()
+
+    if not saved_paths:
+        raise HTTPException(status_code=400, detail="No files could be saved.")
+
+    # Run ingestion on each saved file
+    merged: dict = {
+        "documents_processed": 0,
+        "documents_skipped": 0,
+        "chunks_created": 0,
+        "chunks_stored": 0,
+        "bm25_indexed": 0,
+        "graph_entities": 0,
+        "graph_triples": 0,
+        "errors": save_errors,
+    }
+
+    for path in saved_paths:
+        try:
+            stats = _pipeline.ingest_file(path)
+            for key in ("documents_processed", "documents_skipped",
+                        "chunks_created", "chunks_stored", "bm25_indexed",
+                        "graph_entities", "graph_triples"):
+                merged[key] += stats.get(key, 0)
+            merged["errors"].extend(stats.get("errors", []))
+        except Exception as exc:
+            logger.exception("Ingestion error for %s", path.name)
+            merged["errors"].append({"source": path.name, "error": str(exc)})
+
+    return IngestResponse(**merged)
+
 
 @app.get("/metrics", tags=["evaluation"])
 async def get_metrics(limit: int = 100, days: int = 7):

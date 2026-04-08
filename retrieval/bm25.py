@@ -23,13 +23,15 @@ import string
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from config import get_settings
 
 from retrieval.dense import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
+cfg = get_settings()
 # Path where the BM25 index is persisted between runs
-_DEFAULT_INDEX_PATH = Path("data/bm25_index.pkl")
+_DEFAULT_INDEX_PATH = Path(cfg.bm25_path)
 
 # Common English stop words (avoids NLTK download requirement)
 _STOP_WORDS = frozenset("""

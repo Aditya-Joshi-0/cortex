@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # ── Paths ─────────────────────────────────────────────────
     data_dir: str = "/data/storage/documents"
     log_level: str = "INFO"
+    upload_dir: str = os.getenv("UPLOAD_DIR", "/data/storage/uploads")
+    bm25_path: str = os.getenv("BM25_PATH", "/data/storage/bm25_index.pkl")
 
      # ── CRAG ─────────────────────────────────────────────────
     crag_enabled: bool = True
@@ -85,7 +87,7 @@ class Settings(BaseSettings):
     mistral_model: str = os.getenv("MISTRAL_MODEL", "devstral-latest")
 
     # ── Redis cache ───────────────────────────────────────────
-    redis_url: str = ""
+    redis_url: str = os.getenv("REDIS_URL", "")
     cache_ttl_seconds: int = 3600    # 1 hour
 
     # ── Evaluation ────────────────────────────────────────────

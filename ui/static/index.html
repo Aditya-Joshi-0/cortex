@@ -5,36 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cortex RAG</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <link rel="stylesheet" href="/static/styles.css" />
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 </head>
 <body>
+<div class="mobile-overlay" id="mobileOverlay"></div>
+
 <div class="shell">
 
-<!-- LEFT SIDEBAR -->
 <nav class="sidebar" id="sidebar">
   <div class="logo">
-    <!-- <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0">
-      <circle cx="12" cy="12" r="10" stroke="#f59e0b" stroke-width="1.5"/>
-      <path d="M8 12h8M12 8l4 4-4 4" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg> -->
     <svg width="24" height="24" viewBox="0 0 200 200" fill="none" style="flex-shrink:0" xmlns="http://www.w3.org/2000/svg">
       <circle cx="100" cy="100" r="90" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4 4" />
-      
       <path d="M100 30C61.3401 30 30 61.3401 30 100C30 138.66 61.3401 170 100 170" 
             stroke="url(#paint0_linear)" stroke-width="12" stroke-linecap="round" />
-      
       <circle cx="100" cy="30" r="8" fill="#6366F1" />
       <circle cx="140" cy="60" r="8" fill="#4F46E5" />
       <circle cx="160" cy="100" r="8" fill="#3B82F6" />
       <circle cx="140" cy="140" r="8" fill="#06B6D4" />
       <circle cx="100" cy="170" r="8" fill="#22D3EE" />
-
       <rect x="85" y="85" width="30" height="30" rx="6" fill="url(#paint0_linear)" transform="rotate(45 100 100)" />
       <path d="M100 85V115M85 100H115" stroke="white" stroke-width="3" stroke-linecap="round" />
-
       <defs>
         <linearGradient id="paint0_linear" x1="30" y1="30" x2="170" y2="170" gradientUnits="userSpaceOnUse">
           <stop stop-color="#6366F1" />
@@ -77,14 +71,16 @@
   </div>
 </nav>
 
-<!-- MAIN -->
 <div class="main">
 
-  <!-- CHAT TAB -->
   <div class="tab-panel active" id="tab-chat">
     <div class="panel-header">
-      <span class="panel-title">/ Cortex</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="mobile-nav-toggle" aria-label="Open Menu">☰</button>
+        <span class="panel-title">/ Cortex</span>
+      </div>
       <div class="panel-actions">
+        <button class="btn btn-ghost mobile-sources-btn" id="mobileSourcesBtn" style="display:none">sources</button>
         <button class="btn btn-ghost" id="clearChatBtn">clear</button>
       </div>
     </div>
@@ -98,10 +94,10 @@
           </div>
         </div>
       </div>
-      <div class="sources-panel" id="sourcesPanel">
+      <div class="sources-panel collapsed" id="sourcesPanel">
         <div class="sources-header">
           <span class="sources-title">Sources</span>
-          <button class="sources-toggle" id="sourcesToggle" title="Collapse">▶</button>
+          <button class="sources-toggle" id="sourcesToggle" title="Expand">◀</button>
         </div>
         <div class="sources-list" id="sourcesList">
           <div class="empty-sources">
@@ -120,23 +116,54 @@
     </div>
   </div>
 
-  <!-- INGEST TAB -->
   <div class="tab-panel" id="tab-ingest">
-    <div class="panel-header"><span class="panel-title">/ ingest</span></div>
-    <div class="ingest-body">
-      <div class="form-card">
-        <h3>ingest_documents()</h3>
-        <div class="form-group">
-          <label class="form-label">server path — file or directory</label>
-          <input class="form-input" type="text" id="ingestPath" placeholder="data/documents  or  /path/to/paper.pdf">
-        </div>
-        <label class="checkbox-row">
-          <input type="checkbox" id="ingestRecursive" checked>
-          <span>recursive (include subdirectories)</span>
-        </label>
-        <div class="progress-wrap" id="ingestProgress"><div class="progress-bar"></div></div>
-        <div style="margin-top:13px"><button class="btn btn-primary" id="ingestBtn">run ingestion</button></div>
+    <div class="panel-header">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="mobile-nav-toggle" aria-label="Open Menu">☰</button>
+        <span class="panel-title">/ ingest</span>
       </div>
+    </div>
+    <div class="ingest-body">
+      <div class="ingest-tabs">
+        <div class="ingest-tab active" data-section="upload">upload files</div>
+        <div class="ingest-tab" data-section="path">server path</div>
+      </div>
+
+      <div class="ingest-section active" id="ingest-section-upload">
+        <div class="form-card">
+          <h3>upload_files()</h3>
+          <input type="file" id="fileInput" multiple accept=".pdf,.html,.htm,.txt,.md" style="display:none">
+          <div class="drop-zone" id="dropZone">
+            <div class="drop-zone-icon">📄</div>
+            <div class="drop-zone-title">Drop files here or click to browse</div>
+            <div class="drop-zone-sub">PDF · HTML · TXT · Markdown — multiple files allowed</div>
+          </div>
+          <div class="file-list" id="fileList"></div>
+          <div class="upload-actions">
+            <button class="btn btn-primary" id="uploadBtn" disabled>upload &amp; ingest</button>
+            <span class="upload-count" id="uploadCount"></span>
+            <button class="btn btn-ghost" id="clearFilesBtn" style="display:none">clear</button>
+          </div>
+          <div class="progress-wrap" id="uploadProgress"><div class="progress-bar"></div></div>
+        </div>
+      </div>
+
+      <div class="ingest-section" id="ingest-section-path">
+        <div class="form-card">
+          <h3>ingest_path()</h3>
+          <div class="form-group">
+            <label class="form-label">server path — file or directory</label>
+            <input class="form-input" type="text" id="ingestPath" placeholder="data/documents  or  /path/to/paper.pdf">
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="ingestRecursive" checked>
+            <span>recursive (include subdirectories)</span>
+          </label>
+          <div class="progress-wrap" id="ingestProgress"><div class="progress-bar"></div></div>
+          <div style="margin-top:13px"><button class="btn btn-primary" id="ingestBtn">run ingestion</button></div>
+        </div>
+      </div>
+
       <div class="ingest-result" id="ingestResult"></div>
       <div class="ingest-log-section">
         <h4>ingestion log</h4>
@@ -145,10 +172,12 @@
     </div>
   </div>
 
-  <!-- EVAL TAB -->
   <div class="tab-panel" id="tab-eval">
     <div class="panel-header">
-      <span class="panel-title">/ evaluation</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="mobile-nav-toggle" aria-label="Open Menu">☰</button>
+        <span class="panel-title">/ evaluation</span>
+      </div>
       <div class="panel-actions">
         <button class="btn btn-ghost" id="refreshMetrics">refresh</button>
         <button class="btn btn-danger" id="flushCache">flush cache</button>
@@ -159,10 +188,12 @@
     </div>
   </div>
 
-  <!-- SYSTEM TAB -->
   <div class="tab-panel" id="tab-system">
     <div class="panel-header">
-      <span class="panel-title">/ system</span>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <button class="mobile-nav-toggle" aria-label="Open Menu">☰</button>
+        <span class="panel-title">/ system</span>
+      </div>
       <div class="panel-actions"><button class="btn btn-ghost" id="refreshSystem">refresh</button></div>
     </div>
     <div class="system-body" id="systemBody">

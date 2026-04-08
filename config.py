@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     api_reload: bool = True
 
     # ── Paths ─────────────────────────────────────────────────
-    data_dir: str = "data/documents"
+    data_dir: str = "/data/storage/documents"
     log_level: str = "INFO"
 
      # ── CRAG ─────────────────────────────────────────────────
@@ -64,8 +64,8 @@ class Settings(BaseSettings):
     crag_relevance_threshold: float = 0.5   # below this → POOR grade
 
     # ── Graph ─────────────────────────────────────────────────
-    graph_enabled: bool = True
-    graph_path: str = "data/knowledge_graph.json"
+    graph_enabled: bool = os.getenv("GRAPH_ENABLED", True)
+    graph_path: str = os.getenv("GRAPH_PATH", "/data/storage/knowledge_graph.json")
     graph_max_hops: int = 2
     # "rebel"          → local REBEL model, no API calls (default)
     # "llm"            → Groq LLM, free-form predicates
@@ -89,8 +89,8 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600    # 1 hour
 
     # ── Evaluation ────────────────────────────────────────────
-    eval_db_path: str = "data/cortex_eval.db"
-    eval_enabled: bool = True        # set False to skip RAGAS calls entirely
+    eval_db_path: str = os.getenv("EVAL_DB_PATH", "/data/storage/cortex_eval.db")
+    eval_enabled: bool = os.getenv("EVAL_ENABLED", True)        # set False to skip RAGAS calls entirely
 
 
 @lru_cache(maxsize=1)

@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     mistral_model: str = os.getenv("MISTRAL_MODEL", "devstral-latest")
 
     # ── Redis cache ───────────────────────────────────────────
-    redis_url: str = "redis://localhost:6379"
+    redis_url: str = ""
     cache_ttl_seconds: int = 3600    # 1 hour
 
     # ── Evaluation ────────────────────────────────────────────

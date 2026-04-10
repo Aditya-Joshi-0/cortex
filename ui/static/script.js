@@ -291,7 +291,7 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').
 
 /* MODEL SELECTOR */
 let providers = [];
-let llmConfig = JSON.parse(localStorage.getItem('cortex-llm') || 'null') || {provider:'groq',model:'llama-3.3-70b-versatile',api_key:'',base_url:''};
+let llmConfig = JSON.parse(localStorage.getItem('cortex-llm') || 'null') || {provider:'nvidia_nim',model:'openai/gpt-oss-120b',api_key:'',base_url:''};
 // Migration: clear stale base_url from known providers stored by older UI versions
 if(llmConfig.base_url && llmConfig.provider !== 'custom') {
   llmConfig.base_url = '';

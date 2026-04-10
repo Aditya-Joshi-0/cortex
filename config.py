@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     final_top_k: int = 5                 # chunks sent to LLM
 
     # ── LLM / TAVILY ───────────────────────────────────────────
-    default_provider: str = "groq"
+    default_provider: str = os.getenv("DEFAULT_PROVIDER", "nvidia_nim")
+    default_model: str = os.getenv("DEFAULT_MODEL", "openai/gpt-oss-120b")
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")  # must be set in .env for LLM classification to work
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     groq_temperature: float = float(os.getenv("GROQ_TEMPERATURE", 0.1))

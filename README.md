@@ -1,3 +1,4 @@
+<!--
 ---
 title: Cortex RAG
 sdk: docker
@@ -5,6 +6,7 @@ emoji: 🧠
 colorFrom: blue
 colorTo: purple
 ---
+-->
 
 # Cortex RAG — Next-Gen Retrieval-Augmented Generation
 
@@ -972,6 +974,6 @@ points on retrieval benchmarks.
 | Phase | Status | What's added |
 |-------|--------|--------------|
 | 1 | ✅ Done | Dense RAG, semantic chunking, parent-child, streaming UI |
-| 2 | 🔜 Next | BM25 sparse, query router, RRF fusion, cross-encoder reranking |
-| 3 | Planned | GraphRAG (spaCy NER + NetworkX), CRAG gate, web fallback |
-| 4 | Planned | RAGAS eval harness, Redis cache, evaluation dashboard |
+| 2 | ✅ Done | BM25 sparse, query router, RRF fusion, cross-encoder reranking |
+| 3 | ✅ Done | GraphRAG (spaCy NER + NetworkX), CRAG gate, web fallback |
+| 4 | ✅ Done | RAGAS eval harness, Redis cache, evaluation dashboard |

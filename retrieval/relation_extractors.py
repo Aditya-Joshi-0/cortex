@@ -333,7 +333,7 @@ class LLMExtractor(RelationExtractor):
                         "content": _LLM_PROMPT.format(text=chunk.text[:2000]),
                     }],
                     temperature=0.0,
-                    max_tokens=512,
+                    max_tokens=2048,
                 )
             raw = response.choices[0].message.content or "[]"
             return self._parse(raw, chunk)

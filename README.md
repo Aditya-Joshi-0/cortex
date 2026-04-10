@@ -1,3 +1,10 @@
+---
+title: Cortex
+sdk: docker
+emoji: 📚
+colorFrom: blue
+colorTo: purple
+---
 # Cortex RAG — Phase 1
 
 > Production-grade Retrieval-Augmented Generation with dense vector search,

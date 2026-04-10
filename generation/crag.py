@@ -268,7 +268,7 @@ class CRAGGate:
                     "content": _GRADER_PROMPT.format(query=query, passages=passages),
                 }],
                 temperature=0.0,
-                max_tokens=200,
+                max_tokens=512,
             )
             raw = response.choices[0].message.content or "{}"
             return self._parse_grade(raw)
@@ -322,7 +322,7 @@ class CRAGGate:
                     ),
                 }],
                 temperature=0.3,
-                max_tokens=128,
+                max_tokens=512,
             )
             rewritten = (response.choices[0].message.content or "").strip()
             return rewritten if rewritten else original_query

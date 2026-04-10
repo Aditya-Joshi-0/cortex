@@ -81,6 +81,47 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-ghost mobile-sources-btn" id="mobileSourcesBtn" style="display:none">sources</button>
+        <!-- Model selector pill -->
+        <div class="model-selector" id="modelSelector">
+          <div class="model-pill" id="modelPill" title="Select LLM provider and model">
+            <span class="model-pill-dot" id="modelDot"></span>
+            <span class="model-pill-text" id="modelPillLabel">loading…</span>
+            <span class="model-pill-caret">▾</span>
+          </div>
+          <div class="model-popover" id="modelPopover">
+            <div class="pop-header">
+              <span>LLM provider &amp; model</span>
+              <button class="pop-close" id="popCloseBtn" title="Close">&#x2715;</button>
+            </div>
+            <div class="pop-body">
+              <!-- Provider -->
+              <div>
+                <div class="pop-section-label">provider</div>
+                <div class="provider-grid" id="providerGrid"></div>
+              </div>
+              <!-- Model -->
+              <div>
+                <div class="pop-section-label">model</div>
+                <select class="pop-select" id="modelSelect"></select>
+                <input class="pop-input" id="modelCustomInput" placeholder="model id (e.g. meta/llama-3.1-8b-instruct)" style="display:none;margin-top:6px">
+              </div>
+              <!-- Custom base URL (shown only for custom provider) -->
+              <div class="custom-base-row" id="customBaseRow">
+                <div class="pop-section-label">base url</div>
+                <input class="pop-input" id="customBaseInput" placeholder="http://localhost:11434/v1">
+              </div>
+              <!-- API key override -->
+              <div>
+                <div class="pop-section-label">api key override <span style="color:var(--muted);font-size:9px">(optional — uses .env if blank)</span></div>
+                <input class="pop-input" id="apiKeyInput" type="password" placeholder="sk-…  or  nvapi-…">
+              </div>
+            </div>
+            <div class="pop-footer">
+              <span class="pop-footer-info" id="popFooterInfo"></span>
+              <button class="btn btn-primary" id="applyModelBtn">apply</button>
+            </div>
+          </div>
+        </div>
         <button class="btn btn-ghost" id="clearChatBtn">clear</button>
       </div>
     </div>
@@ -94,7 +135,7 @@
           </div>
         </div>
       </div>
-      <div class="sources-panel collapsed" id="sourcesPanel">
+      <div class="sources-panel" id="sourcesPanel">
         <div class="sources-header">
           <span class="sources-title">Sources</span>
           <button class="sources-toggle" id="sourcesToggle" title="Expand">◀</button>

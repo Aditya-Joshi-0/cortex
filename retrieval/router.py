@@ -132,7 +132,7 @@ class QueryRouter:
                 }
             ],
             temperature=0.0,        # deterministic classification
-            max_tokens=256,
+            max_tokens=2048,
         )
 
         raw = response.choices[0].message.content or ""

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     final_top_k: int = 5                 # chunks sent to LLM
 
     # ── LLM / TAVILY ───────────────────────────────────────────
+    default_provider: str = "groq"
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")  # must be set in .env for LLM classification to work
     groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     groq_temperature: float = float(os.getenv("GROQ_TEMPERATURE", 0.1))
@@ -49,6 +50,12 @@ class Settings(BaseSettings):
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     mistral_api_key: str = os.getenv("MISTRAL_API_KEY", "")
     mistral_model: str = os.getenv("MISTRAL_MODEL", "devstral-latest")
+    # Additional provider keys — set whichever you use
+    nvidia_api_key: str = os.getenv("NVIDIA_API_KEY", "")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    custom_api_key: str = os.getenv("CUSTOM_API_KEY", "")
+    custom_base_url: str = os.getenv("CUSTOM_BASE_URL", "")   # e.g. http://localhost:11434/v1 for Ollama
+
 
     # ── FastAPI ──────────────────────────────────────────────
     api_host: str = "0.0.0.0"

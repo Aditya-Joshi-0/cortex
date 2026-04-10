@@ -7,10 +7,18 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+class LLMConfig(BaseModel):
+    provider: Optional[str] = Field(default=None, description="Provider id: groq|nvidia_nim|openai|custom")
+    model:    Optional[str] = Field(default=None, description="Model id string")
+    api_key:  Optional[str] = Field(default=None, description="API key override for this request")
+    base_url: Optional[str] = Field(default=None, description="Base URL (custom provider only)")
+
+
 class QueryRequest(BaseModel):
-    query: str = Field(..., min_length=3, max_length=2048, description="User question")
-    top_k: Optional[int] = Field(default=None, ge=1, le=20, description="Override default top-k")
+    query:  str = Field(..., min_length=3, max_length=2048, description="User question")
+    top_k:  Optional[int] = Field(default=None, ge=1, le=20, description="Override default top-k")
     stream: bool = Field(default=True, description="Stream tokens via SSE")
+    llm:    Optional[LLMConfig] = Field(default=None, description="LLM provider/model override")
 
 
 class RoutingResponse(BaseModel):
@@ -74,3 +82,23 @@ class HealthResponse(BaseModel):
     embedder: str
     collection_stats: dict
     graph_stats: dict = {}
+
+
+
+class ModelInfo(BaseModel):
+    id:    str
+    label: str
+
+
+class ProviderInfo(BaseModel):
+    id:        str
+    label:     str
+    base_url:  str
+    models:    list[ModelInfo]
+    configured: bool   # True if an API key is set in .env
+
+
+class ProvidersResponse(BaseModel):
+    providers:        list[ProviderInfo]
+    default_provider: str
+    default_model:    str

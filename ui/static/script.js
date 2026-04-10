@@ -205,7 +205,13 @@ async function sendMessage(){
   streamStatus.textContent='…';
 
   try{
-    const resp=await fetch('/query/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,top_k:10,stream:true})});
+    const resp=await fetch('/query/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,top_k:10,stream:true,llm:{
+      provider: llmConfig.provider||null,
+      model:    llmConfig.model||null,
+      api_key:  llmConfig.api_key||null,
+      // Only send base_url for custom — server ignores it for known providers
+      base_url: (llmConfig.provider==='custom' && llmConfig.base_url) ? llmConfig.base_url : null,
+    }})});
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const reader=resp.body.getReader();
     const decoder=new TextDecoder();
@@ -282,6 +288,138 @@ function addBadge(container,text,color){
   const b=document.createElement('span');b.className='badge badge-'+color;b.textContent=text;container.appendChild(b);
 }
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* MODEL SELECTOR */
+let providers = [];
+let llmConfig = JSON.parse(localStorage.getItem('cortex-llm') || 'null') || {provider:'groq',model:'llama-3.3-70b-versatile',api_key:'',base_url:''};
+// Migration: clear stale base_url from known providers stored by older UI versions
+if(llmConfig.base_url && llmConfig.provider !== 'custom') {
+  llmConfig.base_url = '';
+  localStorage.setItem('cortex-llm', JSON.stringify(llmConfig));
+}
+let pendingConfig = {...llmConfig};
+
+async function loadProviders(){
+  try{
+    const r=await fetch('/providers');
+    const d=await r.json();
+    providers=d.providers;
+    if(!providers.find(p=>p.id===llmConfig.provider)){llmConfig.provider=d.default_provider;llmConfig.model=d.default_model;}
+    renderProviderGrid();updateModelPill();
+  }catch(e){
+    document.getElementById('modelPillLabel').textContent='no API';
+    document.getElementById('modelDot').className='model-pill-dot unconfigured';
+  }
+}
+
+function renderProviderGrid(){
+  const grid=document.getElementById('providerGrid');grid.innerHTML='';
+  providers.forEach(p=>{
+    const c=document.createElement('div');
+    c.className='provider-card'+(p.id===pendingConfig.provider?' selected':'')+(p.configured?'':' unconfigured');
+    c.dataset.pid=p.id;
+    c.innerHTML='<div class="pcard-name">'+escHtml(p.label)+'</div><div class="pcard-status'+(p.configured?' ok':'')+'">'+( p.configured?'● configured':'○ no key')+'</div>';
+    c.addEventListener('click',()=>selectProvider(p.id));
+    grid.appendChild(c);
+  });
+}
+
+function selectProvider(pid){
+  pendingConfig.provider=pid;pendingConfig.base_url='';
+  const p=providers.find(x=>x.id===pid);
+  const sel=document.getElementById('modelSelect');
+  const cust=document.getElementById('modelCustomInput');
+  const baseRow=document.getElementById('customBaseRow');
+  if(p&&p.models.length>0){
+    sel.style.display='';cust.style.display='none';
+    sel.innerHTML=p.models.map(m=>'<option value="'+escHtml(m.id)+'">'+escHtml(m.label)+' ('+escHtml(m.id)+')</option>').join('');
+    const prev=pendingConfig.model;
+    if(p.models.find(m=>m.id===prev)) sel.value=prev;
+    pendingConfig.model=sel.value;
+  }else{
+    sel.style.display='none';cust.style.display='';cust.value=pendingConfig.model||'';
+  }
+  baseRow.style.display=pid==='custom'?'':'none';
+  document.querySelectorAll('.provider-card').forEach(c=>c.classList.toggle('selected',c.dataset.pid===pid));
+  updateFooterInfo(pid);
+}
+
+function updateFooterInfo(pid){
+  const p=providers.find(x=>x.id===pid);
+  const info=document.getElementById('popFooterInfo');if(!p) return;
+  if(p.id==='custom') info.textContent='point to any OpenAI-compatible server';
+  else if(!p.configured) info.textContent='add '+pid.toUpperCase()+'_API_KEY to .env';
+  else info.textContent=p.base_url.replace('https://','');
+}
+
+function updateModelPill(){
+  const p=providers.find(x=>x.id===llmConfig.provider);
+  const lbl=document.getElementById('modelPillLabel');
+  const dot=document.getElementById('modelDot');
+  const shortModel=llmConfig.model?llmConfig.model.split('/').pop():'—';
+  lbl.textContent=(p?p.label:llmConfig.provider)+' · '+shortModel;
+  dot.className='model-pill-dot'+(p&&p.configured?'':' unconfigured');
+}
+
+document.getElementById('modelPill').addEventListener('click',e=>{
+  e.stopPropagation();
+  const pop=document.getElementById('modelPopover');
+  const pill=document.getElementById('modelPill');
+  const isOpen=pop.classList.toggle('open');
+  pill.classList.toggle('open',isOpen);
+  if(isOpen){
+    pendingConfig={...llmConfig};
+    renderProviderGrid();selectProvider(pendingConfig.provider);
+    document.getElementById('apiKeyInput').value=llmConfig.api_key||'';
+    document.getElementById('customBaseInput').value=llmConfig.base_url||'';
+    if(window.innerWidth<=600){
+      const bd=document.createElement('div');
+      bd.id='modelBackdrop';
+      bd.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:499';
+      bd.addEventListener('click',closeModelPopover);
+      document.body.appendChild(bd);
+    }
+  } else {
+    closeModelPopover();
+  }
+});
+function closeModelPopover(){
+  document.getElementById('modelPopover').classList.remove('open');
+  document.getElementById('modelPill').classList.remove('open');
+  const bd=document.getElementById('modelBackdrop');
+  if(bd) bd.remove();
+}
+document.getElementById('popCloseBtn').addEventListener('click',closeModelPopover);
+document.addEventListener('click',e=>{
+  if(!document.getElementById('modelSelector').contains(e.target)){
+    closeModelPopover();
+  }
+});
+document.getElementById('modelSelect').addEventListener('change',e=>{pendingConfig.model=e.target.value;});
+document.getElementById('modelCustomInput').addEventListener('input',e=>{pendingConfig.model=e.target.value.trim();});
+document.getElementById('applyModelBtn').addEventListener('click',()=>{
+  const sel=document.getElementById('modelSelect');
+  const cust=document.getElementById('modelCustomInput');
+  const p=providers.find(x=>x.id===pendingConfig.provider);
+  pendingConfig.model=(p&&p.models.length>0)?sel.value:cust.value.trim();
+  if(!pendingConfig.model){toast('Enter a model id');return;}
+  llmConfig={
+    provider: pendingConfig.provider,
+    model:    pendingConfig.model,
+    api_key:  document.getElementById('apiKeyInput').value.trim(),
+    // Only store base_url for custom provider — for known providers the
+    // server always uses its own registry URL, so storing it causes stale
+    // URLs to be sent across provider switches.
+    base_url: pendingConfig.provider === 'custom'
+      ? document.getElementById('customBaseInput').value.trim()
+      : '',
+  };
+  localStorage.setItem('cortex-llm',JSON.stringify(llmConfig));
+  updateModelPill();
+  closeModelPopover();
+  toast('✓ Using '+(p?p.label:llmConfig.provider)+' · '+llmConfig.model.split('/').pop());
+});
+loadProviders();
 
 /* INGEST TABS */
 document.querySelectorAll('.ingest-tab').forEach(tab=>{

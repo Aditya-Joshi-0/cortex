@@ -22,12 +22,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-cfg = get_settings()
-_DEFAULT_DB_PATH = Path(cfg.eval_db_path)
+_DEFAULT_DB_PATH = Path("data/cortex_eval.db")
 
 # ── Schema ─────────────────────────────────────────────────────
 

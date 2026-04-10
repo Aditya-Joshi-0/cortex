@@ -35,13 +35,17 @@ from api.schemas import (
     HealthResponse,
     IngestRequest,
     IngestResponse,
+    ModelInfo,
+    ProviderInfo,
+    ProvidersResponse,
     QueryRequest,
     QueryResponse,
     ChunkResponse,
     CitationResponse,
 )
+
 from config import get_settings
-from generation.generator import Generator, GenerationRequest
+from generation.generator import PROVIDERS, Generator, GenerationRequest
 from generation.crag import CRAGGate
 from evaluation.store import EvalStore, QueryLogEntry
 from evaluation.ragas_eval import RAGASEvaluator, EvalInput
@@ -282,6 +286,32 @@ async def flush_cache():
     deleted = _retriever.flush_all()
     return {"deleted": deleted}
 
+
+@app.get("/providers", response_model=ProvidersResponse, tags=["system"])
+async def get_providers() -> ProvidersResponse:
+    """
+    Returns the full provider/model catalogue and which providers are
+    configured (i.e. have an API key in .env).
+    """
+    cfg = get_settings()
+    infos: list[ProviderInfo] = []
+    for pid, pdata in PROVIDERS.items():
+        env_key = pdata["env_key"]
+        key_set = bool(getattr(cfg, env_key, "") or getattr(cfg, "groq_api_key", ""))
+        infos.append(ProviderInfo(
+            id=pid,
+            label=pdata["label"],
+            base_url=pdata["base_url"],
+            models=[ModelInfo(id=m["id"], label=m["label"]) for m in pdata["models"]],
+            configured=key_set,
+        ))
+    return ProvidersResponse(
+        providers=infos,
+        default_provider=getattr(cfg, "default_provider", "groq"),
+        default_model=getattr(cfg, "groq_model", "llama-3.3-70b-versatile"),
+    )
+
+
 @app.post("/query", response_model=QueryResponse, tags=["retrieval"])
 async def query(req: QueryRequest) -> QueryResponse:
     """
@@ -320,9 +350,19 @@ async def query(req: QueryRequest) -> QueryResponse:
     )
     final_chunks = crag_result.final_chunks
 
+    llm = req.llm or {}
+    llm_provider = getattr(llm, 'provider', None) if hasattr(llm, 'provider') else None
+    llm_model    = getattr(llm, 'model',    None) if hasattr(llm, 'model')    else None
+    llm_api_key  = getattr(llm, 'api_key',  None) if hasattr(llm, 'api_key')  else None
+    llm_base_url = getattr(llm, 'base_url', None) if hasattr(llm, 'base_url') else None
+
     try:
         result = _generator.generate(
-            GenerationRequest(query=req.query, chunks=final_chunks)
+            GenerationRequest(
+                query=req.query, chunks=final_chunks,
+                provider=llm_provider, model=llm_model,
+                api_key=llm_api_key,   base_url=llm_base_url,
+            )
         )
     except Exception as exc:
         logger.exception("Generation error")
@@ -395,7 +435,7 @@ async def query_stream(req: QueryRequest):
     """
     cfg = get_settings()
     k = req.top_k or cfg.retrieval_top_k
-
+    print(req)
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
             # 1. Retrieve
@@ -453,10 +493,13 @@ async def query_stream(req: QueryRequest):
                 })
 
             # 4. Stream answer tokens
+            _llm = req.llm or {}
             gen_request = GenerationRequest(
-                query=req.query,
-                chunks=final_chunks,
-                stream=True,
+                query=req.query, chunks=final_chunks, stream=True,
+                provider=getattr(_llm, 'provider', None),
+                model=getattr(_llm, 'model', None),
+                api_key=getattr(_llm, 'api_key', None),
+                base_url=getattr(_llm, 'base_url', None),
             )
             for token in _generator.stream(gen_request):
                 yield _sse_event({"type": "token", "text": token})

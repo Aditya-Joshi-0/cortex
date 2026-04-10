@@ -1,4 +1,3 @@
-<!--
 ---
 title: Cortex RAG
 sdk: docker
@@ -6,7 +5,6 @@ emoji: 🧠
 colorFrom: blue
 colorTo: purple
 ---
--->
 
 # Cortex RAG — Next-Gen Retrieval-Augmented Generation
 

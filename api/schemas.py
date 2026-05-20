@@ -23,7 +23,7 @@ class QueryRequest(BaseModel):
     top_k:  Optional[int] = Field(default=None, ge=1, le=20, description="Override default top-k")
     stream: bool = Field(default=True, description="Stream tokens via SSE")
     llm:    Optional[LLMConfig] = Field(default=None, description="LLM provider/model override")
-
+    conversation: list[ConversationTurn] = Field(default_factory=list)
 
 class RoutingResponse(BaseModel):
     intent: str

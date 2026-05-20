@@ -138,6 +138,7 @@ class GenerationRequest:
     chunks:   list[RetrievedChunk]
     stream:   bool = True
     conversation: list[dict] = field(default_factory=list)  # [{role, content}, ...]    provider: Optional[str] = None   # e.g. "groq", "nvidia_nim", "openai", "custom"
+    provider: Optional[str] = None
     model:    Optional[str] = None   # model id string
     api_key:  Optional[str] = None   # override .env key for this request
     base_url: Optional[str] = None   # only used when provider == "custom"

@@ -138,6 +138,7 @@ const streamStatus=document.getElementById('streamStatus');
 const sourcesList=document.getElementById('sourcesList');
 let isStreaming=false;
 let currentChunks=[];
+let chatHistory=[];   // [{role,content}] — short-term memory sent to API
 
 chatInput.addEventListener('input',()=>{
   chatInput.style.height='auto';
@@ -149,7 +150,7 @@ sendBtn.addEventListener('click',sendMessage);
 document.getElementById('clearChatBtn').addEventListener('click',()=>{
   chatMessages.innerHTML='<div class="message"><div class="msg-avatar ai">cx</div><div class="msg-body"><div class="msg-role">CORTEX</div><div class="msg-text">Cleared. Ask anything.</div></div></div>';
   sourcesList.innerHTML='<div class="empty-sources"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg><span>Retrieved passages will appear here</span></div>';
-  streamStatus.textContent='';currentChunks=[];
+  streamStatus.textContent='';currentChunks=[];chatHistory=[];
 });
 
 function renderSourceCards(chunks){
@@ -205,13 +206,22 @@ async function sendMessage(){
   streamStatus.textContent='…';
 
   try{
-    const resp=await fetch('/query/stream',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,top_k:10,stream:true,llm:{
-      provider: llmConfig.provider||null,
-      model:    llmConfig.model||null,
-      api_key:  llmConfig.api_key||null,
-      // Only send base_url for custom — server ignores it for known providers
-      base_url: (llmConfig.provider==='custom' && llmConfig.base_url) ? llmConfig.base_url : null,
-    }})});
+    // Send last 6 turns (3 exchanges) as short-term memory
+    const historyWindow=chatHistory.slice(-6);
+    const resp=await fetch('/query/stream',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        query, top_k:10, stream:true,
+        conversation: historyWindow,
+        llm:{
+          provider: llmConfig.provider||null,
+          model:    llmConfig.model||null,
+          api_key:  llmConfig.api_key||null,
+          base_url: (llmConfig.provider==='custom'&&llmConfig.base_url)?llmConfig.base_url:null,
+        }
+      })
+    });
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const reader=resp.body.getReader();
     const decoder=new TextDecoder();
@@ -232,6 +242,11 @@ async function sendMessage(){
           const routing=evt.routing||{};
           renderSourceCards(chunks);
           streamStatus.textContent='generating…';
+          // Show memory rewrite notification if query was rewritten
+          if(evt.memory_rewritten_query){
+            addBadge(liveBadges,'↺ context resolved','purple');
+            streamStatus.textContent='rewritten: "'+evt.memory_rewritten_query.slice(0,55)+'…"';
+          }
           if(routing.intent) addBadge(liveBadges,routing.intent,'amber');
           (routing.strategies||[]).forEach(s=>addBadge(liveBadges,s.toUpperCase(),'blue'));
         }
@@ -242,6 +257,7 @@ async function sendMessage(){
           if(evt.rewritten_query) streamStatus.textContent='rewritten: "'+evt.rewritten_query.slice(0,50)+'…"';
         }
         else if(evt.type==='token'){
+          // Append text node directly before cursor — true per-token streaming
           const tok=evt.text||'';
           rawText+=tok;
           cursor.before(document.createTextNode(tok));
@@ -280,6 +296,13 @@ async function sendMessage(){
   }
 
   liveText.removeAttribute('id');liveBadges.removeAttribute('id');
+  // Store this exchange in short-term memory (keep max 10 turns = 5 exchanges)
+  if(rawText){
+    chatHistory.push({role:'user',    content:query});
+    chatHistory.push({role:'assistant',content:rawText});
+    if(chatHistory.length>10) chatHistory=chatHistory.slice(-10);
+  }
+
   isStreaming=false;sendBtn.disabled=false;sendBtn.textContent='send';
   chatMessages.scrollTop=chatMessages.scrollHeight;
 }

@@ -13,6 +13,10 @@ class LLMConfig(BaseModel):
     api_key:  Optional[str] = Field(default=None, description="API key override for this request")
     base_url: Optional[str] = Field(default=None, description="Base URL (custom provider only)")
 
+class ConversationTurn(BaseModel):
+    """One turn of conversation history — sent from the UI for short-term memory."""
+    role:    str   # "user" | "assistant"
+    content: str   # raw text (no markdown HTML)
 
 class QueryRequest(BaseModel):
     query:  str = Field(..., min_length=3, max_length=2048, description="User question")
@@ -55,6 +59,7 @@ class QueryResponse(BaseModel):
     routing: Optional[RoutingResponse] = None
     crag_grade: Optional[str] = None
     crag_rewritten_query: Optional[str] = None
+    memory_rewritten_query: Optional[str] = None  # set when rewritten for context resolution
     web_search_used: bool = False
     model: str
     usage: dict

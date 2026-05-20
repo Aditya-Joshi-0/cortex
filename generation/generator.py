@@ -96,6 +96,8 @@ Rules you MUST follow:
    "I don't have sufficient information in the knowledge base to answer this."
 4. Keep your answer focused and precise. Use markdown formatting where helpful.
 5. At the end of your response, list the cited sources under a "## Sources" heading.
+6. You have access to the conversation history above. Use it to resolve follow-up
+   references but always ground factual claims in the provided context passages.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -112,6 +114,21 @@ USER_PROMPT_TEMPLATE = """\
 Answer based strictly on the context passages above. Include inline [N] citations.
 """
 
+REWRITE_PROMPT = """\
+You are a query rewriter for a retrieval system.
+Given a conversation history and a follow-up question, rewrite the follow-up as a \
+fully self-contained question that makes sense without the conversation history.
+
+Rules:
+- Resolve all pronouns (it, this, they, that, those, them) to their actual referents
+- Expand vague references like "the first one", "that paper", "the approach above"
+- If the question is already standalone and unambiguous, return it EXACTLY as-is
+- Return ONLY the rewritten question — no explanation, no preamble
+
+Conversation history:
+{history}
+
+Follow-up question: {query}"""
 
 # ── Data classes ──────────────────────────────────────────────
 
@@ -120,8 +137,7 @@ class GenerationRequest:
     query:    str
     chunks:   list[RetrievedChunk]
     stream:   bool = True
-    # Runtime overrides — sent from the UI model selector
-    provider: Optional[str] = None   # e.g. "groq", "nvidia_nim", "openai", "custom"
+    conversation: list[dict] = field(default_factory=list)  # [{role, content}, ...]    provider: Optional[str] = None   # e.g. "groq", "nvidia_nim", "openai", "custom"
     model:    Optional[str] = None   # model id string
     api_key:  Optional[str] = None   # override .env key for this request
     base_url: Optional[str] = None   # only used when provider == "custom"
@@ -155,6 +171,13 @@ class Generator:
     The client is built fresh per unique (provider, model, api_key) tuple
     and cached in a small dict to avoid redundant instantiation across
     requests that share the same settings.
+
+    Memory is injected as prior conversation turns in the message list:
+    [system] → [user turn 1] → [assistant turn 1] → ... → [user + context]
+
+    The retrieval context (RAG passages) is attached only to the FINAL
+    user message. Prior turns are plain Q&A without context — the LLM
+    uses them purely to resolve pronouns and follow-up references.
 
     Streaming example:
         gen = Generator()
@@ -197,14 +220,14 @@ class Generator:
 
         messages = self._build_messages(request)
 
-        stream = client.chat.completions.create(
+        stream_obj = client.chat.completions.create(
             model=resolved["model"],
             messages=messages,
             temperature=resolved["temperature"],
             max_tokens=resolved["max_tokens"],
             stream=True,
         )
-        for chunk in stream:
+        for chunk in stream_obj:
             # Guard against empty choices — the final [DONE] sentinel chunk
             # from some providers (e.g. NVIDIA NIM) arrives as choices:[].
             if not chunk.choices:
@@ -213,6 +236,73 @@ class Generator:
             delta = chunk.choices[0].delta
             if delta and delta.content:
                 yield delta.content
+
+    def rewrite_query(
+        self,
+        query: str,
+        conversation: list[dict],
+        provider: Optional[str] = None,
+        model:    Optional[str] = None,
+        api_key:  Optional[str] = None,
+    ) -> str:
+        """
+        Rewrite a follow-up query into a standalone question using conversation
+        history. Returns the original query unchanged if:
+          - There is no prior conversation (nothing to resolve)
+          - The rewrite call fails (safe fallback)
+          - The rewritten text is empty
+
+        Uses temperature=0 and max_tokens=200 — the cheapest possible call.
+
+        Example:
+            conversation = [
+                {"role": "user",      "content": "What is the attention mechanism?"},
+                {"role": "assistant", "content": "Attention allows the model to ..."},
+            ]
+            query = "Who invented it?"
+            → "Who invented the attention mechanism?"
+        """
+        if not conversation or len(conversation) < 2:
+            return query   # no history — nothing to resolve
+
+        # Build a compact history string from the last 4 turns (2 exchanges)
+        # to keep the rewrite prompt short and fast
+        recent = conversation[-4:]
+        history_str = "\n".join(
+            f"{t['role'].upper()}: {t['content'][:300]}"
+            for t in recent
+        )
+
+        prompt = REWRITE_PROMPT.format(history=history_str, query=query)
+
+        try:
+            # Build a minimal request just for the rewrite call
+            class _MinimalReq:
+                provider = provider
+                model    = model
+                api_key  = api_key
+                base_url = None
+
+            client, resolved = self._resolve_client(_MinimalReq())
+            response = client.chat.completions.create(
+                model=resolved["model"],
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=200,
+                stream=False,
+            )
+            rewritten = (response.choices[0].message.content or "").strip()
+
+            if rewritten and rewritten != query:
+                logger.info(
+                    "Memory rewrite: '%s' → '%s'", query[:60], rewritten[:60]
+                )
+                return rewritten
+
+        except Exception as exc:
+            logger.debug("Query rewrite failed (%s) — using original query", exc)
+
+        return query
 
     def build_sources_block(self, chunks: list[RetrievedChunk]) -> str:
         """
@@ -299,6 +389,35 @@ class Generator:
 
     @staticmethod
     def _build_messages(request: GenerationRequest) -> list[dict]:
+        """
+        Build the full message list for the LLM call.
+
+        Structure with conversation history:
+          [system]
+          [user: prior question 1]         ← conversation turns (no context)
+          [assistant: prior answer 1]
+          [user: prior question 2]
+          [assistant: prior answer 2]
+          ...
+          [user: current question + RAG context passages]
+
+        Without conversation history (or first turn):
+          [system]
+          [user: current question + RAG context passages]
+
+        The RAG context is ONLY attached to the final user message.
+        Prior turns are plain Q&A — they exist solely so the LLM can
+        resolve pronouns and follow-up references from prior exchanges.
+        """
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        # Insert prior conversation turns (without context — plain Q&A)
+        for turn in request.conversation:
+            messages.append({"role": turn["role"], "content": turn["content"]})
+
+        # Final user message: current question + retrieved context
+        context_parts = []
+
         context_parts: list[str] = []
         for i, chunk in enumerate(request.chunks, start=1):
             # Use parent_text for LLM context (wider context window),
@@ -313,10 +432,10 @@ class Generator:
             context=context_str,
             query=request.query,
         )
-        return [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_content},
-        ]
+        messages.append({"role": "user", "content": user_content})
+
+        return messages
+
 
     @staticmethod
     def _build_citations(chunks: list[RetrievedChunk]) -> list[Citation]:

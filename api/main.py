@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from api.schemas import (
+    ConversationTurn,
     HealthResponse,
     IngestRequest,
     IngestResponse,
@@ -324,8 +325,25 @@ async def query(req: QueryRequest) -> QueryResponse:
     import time as _time
     _t0 = _time.perf_counter()
 
+    # ── Short-term memory: rewrite ambiguous follow-ups ────
+    conversation = [{"role": t.role, "content": t.content} for t in req.conversation]
+    effective_query  = req.query
+    memory_rewritten = None
+    if conversation:
+        _llm_rw = req.llm or {}
+        _rewritten = _generator.rewrite_query(
+            query=req.query,
+            conversation=conversation,
+            provider=getattr(_llm_rw, 'provider', None),
+            model=getattr(_llm_rw, 'model', None),
+            api_key=getattr(_llm_rw, 'api_key', None),
+        )
+        if _rewritten != req.query:
+            effective_query  = _rewritten
+            memory_rewritten = _rewritten
+
     try:
-        retrieval = _retriever.retrieve(req.query, top_k_candidates=k, final_top_k=cfg.final_top_k)
+        retrieval = _retriever.retrieve(effective_query, top_k_candidates=k, final_top_k=cfg.final_top_k)
     except Exception as exc:
         logger.exception("Retrieval error")
         raise HTTPException(status_code=500, detail=f"Retrieval failed: {exc}")
@@ -359,7 +377,7 @@ async def query(req: QueryRequest) -> QueryResponse:
     try:
         result = _generator.generate(
             GenerationRequest(
-                query=req.query, chunks=final_chunks,
+                query=effective_query, chunks=final_chunks, conversation=conversation,
                 provider=llm_provider, model=llm_model,
                 api_key=llm_api_key,   base_url=llm_base_url,
             )
@@ -395,6 +413,7 @@ async def query(req: QueryRequest) -> QueryResponse:
     return QueryResponse(
         query=req.query,
         answer=result.answer,
+        memory_rewritten_query=memory_rewritten,
         citations=[
             CitationResponse(
                 number=c.number,
@@ -436,11 +455,27 @@ async def query_stream(req: QueryRequest):
     cfg = get_settings()
     k = req.top_k or cfg.retrieval_top_k
     print(req)
+
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            # 1. Retrieve
-            # 1. Multi-strategy retrieval: router → dense+BM25 → RRF → cross-encoder
-            result = _retriever.retrieve(req.query, top_k_candidates=k, final_top_k=cfg.final_top_k)
+            # 1. Short-term memory: rewrite ambiguous follow-ups
+            _conv = [{"role": t.role, "content": t.content} for t in req.conversation]
+            _eff_query   = req.query
+            _mem_rewrite = None
+            if _conv:
+                _llm_rw2 = req.llm or {}
+                _rw2 = _generator.rewrite_query(
+                    query=req.query, conversation=_conv,
+                    provider=getattr(_llm_rw2, 'provider', None),
+                    model=getattr(_llm_rw2, 'model', None),
+                    api_key=getattr(_llm_rw2, 'api_key', None),
+                )
+                if _rw2 != req.query:
+                    _eff_query   = _rw2
+                    _mem_rewrite = _rw2
+
+            # 2. Multi-strategy retrieval: router → dense+BM25 → RRF → cross-encoder
+            result = _retriever.retrieve(_eff_query, top_k_candidates=k, final_top_k=cfg.final_top_k)
             final_chunks = result.chunks
 
             # 2. Emit chunk metadata + routing decision so UI shows sources + strategy info immediately
@@ -458,6 +493,7 @@ async def query_stream(req: QueryRequest):
             yield _sse_event({
                 "type": "chunk_meta",
                 "chunks": chunk_meta,
+                "memory_rewritten_query": _mem_rewrite,
                 "routing": {
                     "intent": result.decision.intent.value,
                     "strategies": result.decision.strategies,
@@ -495,7 +531,8 @@ async def query_stream(req: QueryRequest):
             # 4. Stream answer tokens
             _llm = req.llm or {}
             gen_request = GenerationRequest(
-                query=req.query, chunks=final_chunks, stream=True,
+                query=_eff_query, chunks=final_chunks, stream=True,
+                conversation=_conv,
                 provider=getattr(_llm, 'provider', None),
                 model=getattr(_llm, 'model', None),
                 api_key=getattr(_llm, 'api_key', None),
